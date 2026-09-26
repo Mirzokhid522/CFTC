@@ -7,10 +7,10 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { background-color: #000000 !important; color: #ffffff; }
-        .card { background-color: #0c0c0c !important; border-color: #222222 !important; }
-        .card-header { background-color: #000000 !important; border-bottom: 1px solid #222222 !important; }
-        .table-dark { --bs-table-bg: #0c0c0c; --bs-table-striped-bg: #121212; --bs-table-hover-bg: #1a1a1a; color: #fff; }
+        body { background-color: #121212 !important; color: #ffffff; }
+        .card { background-color: #121212 !important; border-color: #222222 !important; }
+        .card-header { background-color: #121212 !important; border-bottom: 1px solid #222222 !important; }
+        .table-dark { --bs-table-bg: #121212; --bs-table-striped-bg: #121212; --bs-table-hover-bg: #1a1a1a; color: #fff; }
     </style>
 </head>
 <body>
@@ -19,7 +19,7 @@
         <div class="row mb-4 align-items-center">
             <div class="col-md-6">
                 <h2 class="text-white">Commitments of Traders Analytics</h2>
-                <p class="text-muted mb-0">Legacy, TFF Net Positions & COT Data History</p>
+                <p class="text-muted mb-0">Legacy, TFF Net Positions & COT Index Extremes</p>
             </div>
             <div class="col-md-6 text-end">
                 <label for="symbolSelect" class="form-label fw-bold me-2 text-light">Select Asset:</label>
@@ -45,21 +45,6 @@
             </div>
         </div>
 
-        <!-- COT Data History (Stacked Bar + Yellow Long % Line) -->
-        <div class="card shadow-sm mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0 text-white" id="cotHistoryTitle">COT Data History</h5>
-                <div>
-                    <span class="badge bg-primary me-2">■ Long Positions</span>
-                    <span class="badge bg-danger me-2">■ Short Positions</span>
-                    <span class="badge bg-warning text-dark">▬ Long %</span>
-                </div>
-            </div>
-            <div class="card-body">
-                <div style="height: 340px; position: relative;"><canvas id="cotHistoryChart"></canvas></div>
-            </div>
-        </div>
-
         <!-- COT Index Charts (6-Month & 36-Month with Extremes Background) -->
         <div class="card shadow-sm mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -71,6 +56,20 @@
             </div>
             <div class="card-body">
                 <div style="height: 300px; position: relative;"><canvas id="cotIndexChart"></canvas></div>
+            </div>
+        </div>
+
+        <!-- Non-Commercial Long vs Short % Over Time (1 Year) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 text-white" id="evolutionTitle">Non-Commercial Long vs Short % Over Time (1 Year)</h5>
+                <div>
+                    <span class="text-primary fw-bold me-3">● Long %</span>
+                    <span class="text-danger fw-bold">● Short %</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div style="height: 320px; position: relative;"><canvas id="evolutionChart"></canvas></div>
             </div>
         </div>
 
@@ -126,23 +125,26 @@
     </div>
 
     <script>
-        let summaryChart = null, cotHistoryChartObj = null, cotIndexChartObj = null, legacyChart = null, tffChart = null;
+        let summaryChart = null, cotIndexChartObj = null, evolutionChartObj = null, legacyChart = null, tffChart = null;
         let currentTableType = 'legacy';
 
+        // Custom plugin to draw background color bands for extremes (Green >= 75, Red <= 25)
         const extremasBackgroundPlugin = {
             id: 'extremasBackground',
             beforeDraw(chart) {
                 const { ctx, chartArea: { left, right, top, bottom }, scales: { y } } = chart;
-                if (!y) return;
                 ctx.save();
                 const y75 = y.getPixelForValue(75);
                 const y25 = y.getPixelForValue(25);
 
+                // Top extreme zone (>= 75) -> Dark Green tint
                 ctx.fillStyle = 'rgba(6, 78, 59, 0.35)';
                 ctx.fillRect(left, top, right - left, y75 - top);
 
+                // Bottom extreme zone (<= 25) -> Dark Red tint
                 ctx.fillStyle = 'rgba(127, 29, 29, 0.35)';
                 ctx.fillRect(left, y25, right - left, bottom - y25);
+
                 ctx.restore();
             }
         };
@@ -173,66 +175,6 @@
             } catch (e) { console.error(e); }
         }
 
-        async function loadCotHistoryChart(symbol) {
-            document.getElementById('cotHistoryTitle').innerText = `COT Data History (${symbol} – 1 Year Long vs Short Stack)`;
-            try {
-                const res = await fetch(`/api/cot-history/${symbol}`);
-                const data = await res.json();
-                const ctx = document.getElementById('cotHistoryChart').getContext('2d');
-                if (cotHistoryChartObj) cotHistoryChartObj.destroy();
-
-                cotHistoryChartObj = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: data.map(i => i.date),
-                        datasets: [
-                            {
-                                type: 'bar',
-                                label: 'Long Positions',
-                                data: data.map(i => i.longs),
-                                backgroundColor: '#2563eb',
-                                stack: 'stack0',
-                                order: 2
-                            },
-                            {
-                                type: 'bar',
-                                label: 'Short Positions',
-                                data: data.map(i => i.shorts),
-                                backgroundColor: '#dc2626',
-                                stack: 'stack0',
-                                order: 2
-                            },
-                            {
-                                type: 'line',
-                                label: 'Long %',
-                                data: data.map(i => i.long_pct),
-                                borderColor: '#eab308',
-                                backgroundColor: '#eab308',
-                                borderWidth: 2,
-                                pointRadius: 0,
-                                yAxisID: 'yPercentage',
-                                order: 1
-                            }
-                        ]
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        scales: {
-                            x: { stacked: true, grid: { color: '#1a1a1a' }, ticks: { color: '#d1d4dc', maxTicksLimit: 10 } },
-                            y: { stacked: true, grid: { color: '#1a1a1a' }, ticks: { color: '#d1d4dc' } },
-                            yPercentage: {
-                                position: 'right',
-                                min: 0, max: 100,
-                                grid: { drawOnChartArea: false },
-                                ticks: { color: '#eab308', callback: v => v + '%' }
-                            }
-                        },
-                        plugins: { legend: { display: false } }
-                    }
-                });
-            } catch (e) { console.error(e); }
-        }
-
         async function loadCotIndexChart(symbol) {
             document.getElementById('cotIndexTitle').innerText = `COT Index Charts (${symbol} – 6M vs 36M)`;
             try {
@@ -256,9 +198,38 @@
                             x: { grid: { color: '#1a1a1a' }, ticks: { color: '#d1d4dc', maxTicksLimit: 8 } },
                             y: { min: 0, max: 100, grid: { color: '#1a1a1a' }, ticks: { color: '#d1d4dc', callback: v => v + '%' } } 
                         },
-                        plugins: { legend: { display: position = false } }
+                        plugins: { legend: { display: false } }
                     },
                     plugins: [extremasBackgroundPlugin]
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadEvolutionChart(symbol) {
+            document.getElementById('evolutionTitle').innerText = `Non-Commercial Long vs Short % Over Time (${symbol} – 1 Year)`;
+            try {
+                const res = await fetch(`/api/long-short-evolution/${symbol}`);
+                const data = await res.json();
+                const ctx = document.getElementById('evolutionChart').getContext('2d');
+                if (evolutionChartObj) evolutionChartObj.destroy();
+
+                evolutionChartObj = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.map(i => i.date),
+                        datasets: [
+                            { label: 'Long %', data: data.map(i => i.long_pct), borderColor: '#3b82f6', borderWidth: 2, pointRadius: 0, fill: false },
+                            { label: 'Short %', data: data.map(i => i.short_pct), borderColor: '#ef4444', borderWidth: 2, pointRadius: 0, fill: false }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        scales: { 
+                            x: { grid: { color: '#1a1a1a' }, ticks: { color: '#d1d4dc', maxTicksLimit: 8 } },
+                            y: { min: 0, max: 100, grid: { color: '#1a1a1a' }, ticks: { color: '#d1d4dc', callback: v => v + '%' } } 
+                        },
+                        plugins: { legend: { display: false } }
+                    }
                 });
             } catch (e) { console.error(e); }
         }
@@ -340,7 +311,7 @@
                     if (currentTableType === 'legacy') {
                         html += `<tr><td>${dt}</td><td class="fw-bold text-white">${row.contract_market_name||'-'}</td><td>${Number(row.open_interest_all||0).toLocaleString()}</td><td class="text-success">${Number(row.comm_positions_long_all||0).toLocaleString()}</td><td class="text-danger">${Number(row.comm_positions_short_all||0).toLocaleString()}</td><td>${Number(row.noncomm_positions_long_all||0).toLocaleString()}</td><td>${Number(row.noncomm_positions_short_all||0).toLocaleString()}</td></tr>`;
                     } else {
-                        html += `<tr><td>${dt}</td><td class="fw-bold text-white">${row.contract_market_name||'-'}</td><td>${Number(row.open_interest_all||0).toLocaleString()}</td><td class="text-success">${Number(v=row.dealer_positions_long_all||0).toLocaleString()}</td><td class="text-danger">${Number(row.dealer_positions_short_all||0).toLocaleString()}</td><td>${Number(row.asset_mgr_positions_long||0).toLocaleString()}</td><td>${Number(row.lev_money_positions_long||0).toLocaleString()}</td></tr>`;
+                        html += `<tr><td>${dt}</td><td class="fw-bold text-white">${row.contract_market_name||'-'}</td><td>${Number(row.open_interest_all||0).toLocaleString()}</td><td class="text-success">${Number(row.dealer_positions_long_all||0).toLocaleString()}</td><td class="text-danger">${Number(row.dealer_positions_short_all||0).toLocaleString()}</td><td>${Number(row.asset_mgr_positions_long||0).toLocaleString()}</td><td>${Number(row.lev_money_positions_long||0).toLocaleString()}</td></tr>`;
                     }
                 });
                 tbody.innerHTML = html;
@@ -356,8 +327,8 @@
 
         function loadAllData() {
             const sym = document.getElementById('symbolSelect').value;
-            loadCotHistoryChart(sym);
             loadCotIndexChart(sym);
+            loadEvolutionChart(sym);
             loadLegacyNetChart(sym);
             loadTffNetChart(sym);
             loadTableData(sym);
